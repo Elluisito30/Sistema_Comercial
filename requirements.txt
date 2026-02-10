@@ -1,0 +1,26 @@
+# ============================================
+# DEPENDENCIAS DEL SISTEMA DE COMERCIALIZACIÓN
+# ============================================
+
+# Conexión a Base de Datos
+mysql-connector-python==8.2.0
+
+# Gestión de Variables de Entorno
+python-dotenv==1.0.0
+
+# Framework Web (Streamlit) - Para fases posteriores
+streamlit==1.29.0
+
+# Visualización de Datos - Para dashboards
+plotly==5.18.0
+pandas==2.1.4
+
+# Generación de PDFs - Para reportes
+reportlab==4.0.7
+fpdf2==2.7.6
+
+# Seguridad - Para hash de contraseñas
+bcrypt==4.1.2
+
+# Utilidades
+Pillow==10.1.0
