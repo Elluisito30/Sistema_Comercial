@@ -292,21 +292,35 @@ class CompraService:
             logger.error(f"Error cancelando compra {compra_id}: {e}")
             raise
     
-    def listar_compras(self, estado: str = None) -> List[Dict[str, Any]]:
+    def listar_compras(
+        self,
+        estado: str = None,
+        fecha_inicio: date = None,
+        fecha_fin: date = None
+    ) -> List[Dict[str, Any]]:
         """
-        Lista compras, opcionalmente filtradas por estado.
+        Lista compras, opcionalmente filtradas por estado y rango de fechas.
         
         Args:
             estado (str): Estado a filtrar ('pendiente', 'recibida', 'cancelada')
+            fecha_inicio (date): Fecha inicial (opcional)
+            fecha_fin (date): Fecha final (opcional)
             
         Returns:
             List[Dict]: Lista de compras
         """
         try:
-            if estado:
+            # Si se proporcionan fechas, usar get_by_date_range
+            if fecha_inicio and fecha_fin:
+                compras = self.compra_repo.get_by_date_range(fecha_inicio, fecha_fin)
+            elif estado:
                 compras = self.compra_repo.get_by_estado(estado)
             else:
                 compras = self.compra_repo.get_all_with_details()
+            
+            # Aplicar filtro de estado si se especifica y tenemos fechas
+            if estado and (fecha_inicio and fecha_fin):
+                compras = [c for c in compras if c['estado'] == estado]
             
             logger.info(f"Compras listadas: {len(compras)}")
             return compras
@@ -338,6 +352,23 @@ class CompraService:
             raise
         except Exception as e:
             logger.error(f"Error obteniendo compra completa {compra_id}: {e}")
+            raise
+    
+    def obtener_detalles_compra(self, compra_id: int) -> List[Dict[str, Any]]:
+        """
+        Obtiene los detalles de una compra.
+        
+        Args:
+            compra_id (int): ID de la compra
+            
+        Returns:
+            List[Dict]: Lista de detalles de la compra
+        """
+        try:
+            detalles = self.compra_repo.get_detalle(compra_id)
+            return detalles if detalles else []
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de compra {compra_id}: {e}")
             raise
     
     def calcular_total_compras_periodo(

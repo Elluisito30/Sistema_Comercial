@@ -323,21 +323,35 @@ class VentaService:
             logger.error(f"Error anulando venta {venta_id}: {e}")
             raise
     
-    def listar_ventas(self, estado: str = None) -> List[Dict[str, Any]]:
+    def listar_ventas(
+        self,
+        estado: str = None,
+        fecha_inicio: date = None,
+        fecha_fin: date = None
+    ) -> List[Dict[str, Any]]:
         """
-        Lista ventas, opcionalmente filtradas por estado.
+        Lista ventas, opcionalmente filtradas por estado y rango de fechas.
         
         Args:
             estado (str): Estado a filtrar ('completada', 'anulada')
+            fecha_inicio (date): Fecha inicial (opcional)
+            fecha_fin (date): Fecha final (opcional)
             
         Returns:
             List[Dict]: Lista de ventas
         """
         try:
-            if estado:
+            # Si se proporcionan fechas, usar get_by_date_range
+            if fecha_inicio and fecha_fin:
+                ventas = self.venta_repo.get_by_date_range(fecha_inicio, fecha_fin)
+            elif estado:
                 ventas = self.venta_repo.get_by_estado(estado)
             else:
                 ventas = self.venta_repo.get_all_with_details()
+            
+            # Aplicar filtro de estado si se especifica y tenemos fechas
+            if estado and (fecha_inicio and fecha_fin):
+                ventas = [v for v in ventas if v['estado'] == estado]
             
             logger.info(f"Ventas listadas: {len(ventas)}")
             return ventas
