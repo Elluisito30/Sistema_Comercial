@@ -211,8 +211,8 @@ def crear_producto():
                     except ProductoNoEncontradoException:
                         pass  # El código no existe, podemos continuar
                     
-                    # Crear el producto
-                    nuevo_producto = producto_service.crear_producto(
+                                        # Crear el producto
+                    nuevo_producto_id = producto_service.crear_producto(
                         codigo=codigo,
                         nombre=nombre,
                         descripcion=descripcion,
@@ -223,7 +223,7 @@ def crear_producto():
                         unidad_medida=unidad_medida
                     )
                     
-                    st.success(f"✅ Producto '{nombre}' creado exitosamente (ID: {nuevo_producto['id']})")
+                    st.success(f"✅ Producto '{nombre}' creado exitosamente (ID: {nuevo_producto_id})")
                     st.balloons()
                     
                 except Exception as e:
@@ -328,24 +328,25 @@ def editar_producto():
                 
                 if submitted:
                     try:
-                        producto_service.actualizar_producto(
-                            producto_id=producto_seleccionado['id'],
-                            nombre=nombre,
-                            descripcion=descripcion,
-                            categoria_id=categoria_id,
-                            precio_compra=precio_compra,
-                            precio_venta=precio_venta,
-                            stock_minimo=stock_minimo,
-                            unidad_medida=unidad_medida,
-                            activo=activo
-                        )
+                        datos_update = {
+                            "nombre": nombre,
+                            "descripcion": descripcion,
+                            "categoria_id": categoria_id,
+                            "precio_compra": precio_compra,
+                            "precio_venta": precio_venta,
+                            "stock_minimo": stock_minimo,
+                            "unidad_medida": unidad_medida,
+                            "activo": activo
+                        }
+                        
+                        producto_service.actualizar_producto(producto_seleccionado['id'], datos_update)
                         
                         st.success("✅ Producto actualizado exitosamente")
                         st.rerun()
                     
                     except Exception as e:
                         st.error(f"Error actualizando producto: {str(e)}")
-                
+                        
                 if desactivar:
                     try:
                         producto_service.desactivar_producto(producto_seleccionado['id'])

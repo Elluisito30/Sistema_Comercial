@@ -346,11 +346,12 @@ def recibir_compra():
                 key="fecha_recepcion"
             )
             
-            observaciones_recepcion = st.text_area(
-                "Observaciones de Recepción (opcional)",
-                placeholder="Ingrese observaciones sobre la recepción...",
-                key="obs_recepcion"
-            )
+            # ⚠️ ELIMINADO: El servicio no acepta 'observaciones' como parámetro
+            # observaciones_recepcion = st.text_area(
+            #     "Observaciones de Recepción (opcional)",
+            #     placeholder="Ingrese observaciones sobre la recepción...",
+            #     key="obs_recepcion"
+            # )
             
             # Botones de acción
             col1, col2 = st.columns(2)
@@ -358,11 +359,12 @@ def recibir_compra():
             with col1:
                 if st.button("✅ Confirmar Recepción", type="primary", use_container_width=True):
                     try:
+                        # ✅ LLAMADA CORREGIDA: Sin el parámetro 'observaciones'
                         compra_service.recibir_compra(
                             compra_id=compra_seleccionada['id'],
                             fecha_recepcion=fecha_recepcion,
-                            usuario_id=st.session_state.usuario_id,
-                            observaciones=observaciones_recepcion
+                            usuario_id=st.session_state.usuario_id
+                            # ❌ observaciones=observaciones_recepcion → ELIMINADO
                         )
                         
                         st.success("✅ Compra recibida exitosamente!")

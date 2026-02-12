@@ -114,30 +114,58 @@ class ProductoService:
             logger.error(f"Error buscando productos: {e}")
             raise
     
-    def crear_producto(self, datos_producto: Dict[str, Any]) -> int:
+    def crear_producto(self, datos_producto: Optional[Dict[str, Any]] = None, **kwargs) -> int:
         """
         Crea un nuevo producto.
+        Acepta múltiples formas de entrada:
+         - crear_producto({'codigo': 'P001', 'nombre': 'Producto', ...})
+         - crear_producto(codigo='P001', nombre='Producto', ...)
+         - crear_producto(codigo_producto='P001', nombre_producto='Producto', ...)  # Variantes de nombres
         
         Args:
-            datos_producto (Dict): Datos del producto
+            datos_producto (Optional[Dict]): Datos del producto como diccionario
+            **kwargs: Parámetros nombrados con flexibilidad en nombres de campos
             
         Returns:
             int: ID del producto creado
             
         Raises:
-            DatosInvalidosException: Si los datos son inválidos
+            DatosInvalidosException: Si los datos son inválidos o faltan campos requeridos
         """
         try:
+            # Si recibimos kwargs, construir el dict de datos con mapeo flexible de nombres
+            if kwargs:
+                datos_producto = {
+                    'codigo': kwargs.get('codigo') or kwargs.get('codigo_producto') or kwargs.get('code'),
+                    'nombre': kwargs.get('nombre') or kwargs.get('nombre_producto'),
+                    'categoria_id': kwargs.get('categoria_id') or kwargs.get('categoria') or kwargs.get('categoriaId'),
+                    'precio_compra': kwargs.get('precio_compra') or kwargs.get('precioCompra'),
+                    'precio_venta': kwargs.get('precio_venta') or kwargs.get('precioVenta'),
+                    'stock_actual': kwargs.get('stock_actual') or kwargs.get('stock') or 0,
+                    'stock_minimo': kwargs.get('stock_minimo') or kwargs.get('stockMinimo') or 0,
+                    'unidad_medida': kwargs.get('unidad_medida') or kwargs.get('unidad') or kwargs.get('unidadMedida'),
+                    'descripcion': kwargs.get('descripcion') or kwargs.get('descripcion_producto') or kwargs.get('description')
+                }
+            elif datos_producto is None or not isinstance(datos_producto, dict):
+                # Validación defensiva: evitar errores como 'int' object is not subscriptable
+                raise DatosInvalidosException(
+                    'datos_producto',
+                    f"Se esperaba un diccionario con los datos del producto, pero se recibió: {type(datos_producto).__name__ if datos_producto is not None else 'None'}"
+                )
+
+            # Eliminar claves con valor None para evitar sobrescribir valores por defecto
+            datos_producto = {k: v for k, v in datos_producto.items() if v is not None}
+
             # Validar datos obligatorios
             self._validar_datos_producto(datos_producto)
-            
+
             # Validar que el código no exista
             if self.producto_repo.find_by_codigo(datos_producto['codigo']):
                 raise DatosInvalidosException(
                     'codigo',
                     f"El código '{datos_producto['codigo']}' ya existe"
                 )
-            
+
             # Validar que la categoría exista
             categoria = self.categoria_repo.find_by_id(datos_producto['categoria_id'])
             if not categoria:
@@ -145,18 +173,18 @@ class ProductoService:
                     'categoria_id',
                     'La categoría especificada no existe'
                 )
-            
-            # Validar precios
+
+            # Validar coherencia de precios
             if datos_producto['precio_venta'] < datos_producto['precio_compra']:
                 raise DatosInvalidosException(
                     'precio_venta',
                     'El precio de venta no puede ser menor al precio de compra'
                 )
-            
+
             producto_id = self.producto_repo.insert(datos_producto)
             logger.info(f"Producto creado: ID {producto_id}, Código {datos_producto['codigo']}")
             return producto_id
-            
+
         except DatosInvalidosException:
             raise
         except Exception as e:
@@ -317,7 +345,7 @@ class ProductoService:
         
         if 'stock_minimo' in datos and datos['stock_minimo'] < 0:
             raise DatosInvalidosException('stock_minimo', 'No puede ser negativo')
-        
+    
     def obtener_productos_stock_critico(self) -> List[Dict[str, Any]]:
         """
         Retorna productos con stock crítico (alias de stock bajo).
@@ -325,4 +353,3 @@ class ProductoService:
         productos = self.obtener_productos_stock_bajo()
         logger.info(f"Productos con stock crítico: {len(productos)}")
         return productos
-

@@ -104,30 +104,6 @@ def render():
             st.write(f"**Fecha:** {datetime.now().strftime('%d/%m/%Y')}")
             st.write(f"**Hora:** {datetime.now().strftime('%H:%M:%S')}")
             st.write(f"**Usuario:** {st.session_state.usuario_nombre}")
-        
-        # ============================================
-        # ACCIONES RÁPIDAS
-        # ============================================
-        
-        st.markdown("---")
-        st.subheader("⚡ Acciones Rápidas")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🛍️ Nueva Venta", use_container_width=True):
-                st.session_state.navigation = "🛍️ Ventas"
-                st.rerun()
-        
-        with col2:
-            if st.button("📥 Nueva Compra", use_container_width=True):
-                st.session_state.navigation = "📥 Compras"
-                st.rerun()
-        
-        with col3:
-            if st.button("📦 Ver Inventario", use_container_width=True):
-                st.session_state.navigation = "📊 Inventario"
-                st.rerun()
     
     except Exception as e:
         st.error(f"Error cargando el dashboard: {str(e)}")
