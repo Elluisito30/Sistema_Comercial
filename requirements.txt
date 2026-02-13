@@ -1,30 +1,12 @@
-# ============================================
-# DEPENDENCIAS - REQUIERE PYTHON 3.10-3.12
-# ============================================
-
-# Base requerida (evita errores de compilación)
 wheel>=0.41.0
 setuptools>=65.0.0
-
-# Conexión a Base de Datos
 mysql-connector-python>=8.0.0,<9.0.0
-
-# Gestión de Variables de Entorno
 python-dotenv>=1.0.0
-
-# Framework Web
-streamlit>=1.28.0,<1.30.0
-
-# Visualización de Datos
-plotly>=5.15.0
-pandas>=2.0.0,<2.2.0  # ¡Compatible con Python 3.11/3.12!
-
-# Generación de PDFs
+streamlit>=1.32.0      # ✅ Compatible con Python 3.13
+plotly>=5.18.0
+pandas>=2.2.0          # ✅ Soporta Python 3.13 (versión 2.2+)
+numpy>=1.26.4          # Necesario para pandas 2.2+
 reportlab>=4.0.0
 fpdf2>=2.7.0
-
-# Seguridad
 bcrypt>=4.0.0
-
-# Utilidades
 Pillow>=9.0.0
