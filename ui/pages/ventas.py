@@ -6,6 +6,7 @@ Registrar ventas con validación de stock
 """
 
 import streamlit as st
+import time  # ← Para pausas controladas
 from services import VentaService, ProductoService
 from repositories import ClienteRepository
 from exceptions import *
@@ -32,6 +33,56 @@ def nueva_venta():
     """Formulario para registrar una nueva venta"""
     
     st.subheader("🛒 Nueva Venta")
+    
+    # ✅ Mostrar detalles de venta confirmada SI EXISTE (dentro de esta pestaña)
+    # --- SECCIÓN REEMPLAZADA ---
+    if 'venta_confirmada' in st.session_state:
+        venta = st.session_state.venta_confirmada
+        
+        # ✅ NUEVO ESTILO: Adaptado al tema oscuro con gradiente verde
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #1e3a28 0%, #2d5a3d 100%); 
+            padding: 20px; 
+            border-radius: 10px; 
+            margin-bottom: 20px; 
+            border-left: 5px solid #4CAF50;
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+        ">
+            <h3 style="margin-top: 0; color: #81C784;">🧾 Detalles de la Venta #{venta['numero_venta']}</h3>
+            <p><strong style="color: #A5D6A7;">Cliente:</strong> <span style="color: #E8F5E9;">{venta['cliente']}</span></p>
+            <p><strong style="color: #A5D6A7;">Fecha:</strong> <span style="color: #E8F5E9;">{venta['fecha']}</span></p>
+            <p><strong style="color: #A5D6A7;">Total:</strong> <span style="font-weight: bold; color: #66BB6A; font-size: 1.1em;">S/. {venta['total']:.2f}</span></p>
+            <p><strong style="color: #A5D6A7;">Productos:</strong> <span style="color: #E8F5E9;">{venta['cantidad_productos']}</span></p>
+            <p><strong style="color: #A5D6A7;">Comprobante:</strong> <span style="color: #E8F5E9;">{venta['tipo_comprobante']}</span></p>
+            <p><strong style="color: #A5D6A7;">Método de Pago:</strong> <span style="color: #E8F5E9;">{venta['metodo_pago']}</span></p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Mostrar productos vendidos
+        if venta.get('productos'):
+            st.markdown("#### 📦 Productos Vendidos")
+            df_productos = pd.DataFrame(venta['productos'])
+            if not df_productos.empty:
+                columnas = ['codigo', 'nombre', 'cantidad', 'precio_unitario', 'subtotal']
+                columnas_validas = [c for c in columnas if c in df_productos.columns]
+                df_display = df_productos[columnas_validas].copy()
+                
+                df_display.columns = ['Código', 'Producto', 'Cantidad', 'P. Unit.', 'Subtotal']
+                df_display['P. Unit.'] = df_display['P. Unit.'].apply(lambda x: f"S/. {x:.2f}")
+                df_display['Subtotal'] = df_display['Subtotal'].apply(lambda x: f"S/. {x:.2f}")
+                
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+        
+        # Botón para cerrar y hacer nueva venta
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🆕 Nueva Venta", type="primary", use_container_width=True):
+                del st.session_state.venta_confirmada
+                st.rerun()
+        
+        return
     
     try:
         # Inicializar carrito en session_state si no existe
@@ -113,7 +164,7 @@ def nueva_venta():
             )
         
         with col4:
-            st.write("")  # Espaciado
+            st.write("")
             st.write("")
             if st.button("➕ Agregar", use_container_width=True):
                 agregar_al_carrito(producto_seleccionado, cantidad, precio_unitario)
@@ -125,7 +176,6 @@ def nueva_venta():
         if st.session_state.carrito_venta:
             st.markdown("#### 📦 Productos en el Carrito")
             
-            # Mostrar productos en el carrito
             for idx, item in enumerate(st.session_state.carrito_venta):
                 col1, col2, col3, col4, col5, col6 = st.columns([3, 1, 1, 1, 1, 0.5])
                 
@@ -146,10 +196,6 @@ def nueva_venta():
             
             st.markdown("---")
             
-            # ============================================
-            # SECCIÓN 4: TOTALES Y CONFIRMACIÓN
-            # ============================================
-            
             col1, col2 = st.columns([2, 1])
             
             with col1:
@@ -166,7 +212,6 @@ def nueva_venta():
                 )
             
             with col2:
-                # Calcular totales
                 subtotal = sum(item['subtotal'] for item in st.session_state.carrito_venta)
                 descuento_global = st.number_input(
                     "Descuento Global (S/.)",
@@ -186,7 +231,6 @@ def nueva_venta():
             
             st.markdown("---")
             
-            # Botones de acción
             col1, col2, col3 = st.columns([1, 1, 1])
             
             with col1:
@@ -220,15 +264,12 @@ def agregar_al_carrito(producto, cantidad, precio_unitario):
     """Agrega un producto al carrito"""
     
     try:
-        # Validar stock disponible
         if producto['stock_actual'] < cantidad:
             st.error(f"⚠️ Stock insuficiente. Disponible: {producto['stock_actual']}")
             return
         
-        # Verificar si el producto ya está en el carrito
         for item in st.session_state.carrito_venta:
             if item['producto_id'] == producto['id']:
-                # Actualizar cantidad si ya existe
                 nueva_cantidad = item['cantidad'] + cantidad
                 if nueva_cantidad > producto['stock_actual']:
                     st.error(f"⚠️ Stock insuficiente. Disponible: {producto['stock_actual']}")
@@ -239,7 +280,6 @@ def agregar_al_carrito(producto, cantidad, precio_unitario):
                 st.rerun()
                 return
         
-        # Agregar nuevo item al carrito
         item = {
             'producto_id': producto['id'],
             'codigo': producto['codigo'],
@@ -265,7 +305,6 @@ def confirmar_venta(cliente, tipo_comprobante, metodo_pago, descuento_global, ob
     try:
         venta_service = VentaService()
         
-        # Preparar lista de productos
         productos = [
             {
                 'producto_id': item['producto_id'],
@@ -276,7 +315,6 @@ def confirmar_venta(cliente, tipo_comprobante, metodo_pago, descuento_global, ob
             for item in st.session_state.carrito_venta
         ]
         
-        # Registrar venta
         venta = venta_service.registrar_venta(
             cliente_id=cliente['id'],
             usuario_id=st.session_state.usuario_id,
@@ -288,24 +326,19 @@ def confirmar_venta(cliente, tipo_comprobante, metodo_pago, descuento_global, ob
             observaciones=observaciones
         )
         
-        # Limpiar carrito
+        st.session_state.venta_confirmada = {
+            'numero_venta': venta['numero_venta'],
+            'cliente': f"{cliente['nombres']} {cliente.get('apellidos', '')}",
+            'total': venta['total'],
+            'cantidad_productos': venta['cantidad_productos'],
+            'fecha': venta['fecha_venta'],
+            'tipo_comprobante': tipo_comprobante,
+            'metodo_pago': metodo_pago,
+            'productos': st.session_state.carrito_venta.copy()
+        }
+        
         st.session_state.carrito_venta = []
-        
-        # Mostrar confirmación
-        st.success(f"✅ Venta registrada exitosamente!")
-        st.balloons()
-        
-        # Mostrar detalles de la venta
-        st.info(f"""
-        **Número de Venta:** {venta['numero_venta']}  
-        **Cliente:** {cliente['nombres']} {cliente.get('apellidos', '')}  
-        **Total:** S/. {venta['total']:.2f}  
-        **Productos:** {venta['cantidad_productos']}
-        """)
-        
-        # Botón para ver detalles
-        if st.button("Ver Detalles"):
-            st.json(venta)
+        st.rerun()
     
     except StockInsuficienteException as e:
         st.error(f"⚠️ {e.message}")
@@ -325,7 +358,6 @@ def historial_ventas():
     try:
         venta_service = VentaService()
         
-        # Filtros
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -349,16 +381,15 @@ def historial_ventas():
                 key="fecha_fin_venta"
             )
         
-        # Obtener ventas
         if estado == "Todas":
             ventas = venta_service.listar_ventas(fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
         else:
             ventas = venta_service.listar_ventas(estado=estado, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
         
         if ventas:
-            st.info(f"📊 Total de ventas: **{len(ventas)}** | Monto total: **S/. {sum(v['total'] for v in ventas):,.2f}**")
+            total_monto = sum(v['total'] for v in ventas)
+            st.info(f"📊 Total de ventas: **{len(ventas)}** | Monto total: **S/. {total_monto:,.2f}**")
             
-            # Mostrar ventas
             for venta in ventas:
                 with st.expander(
                     f"🧾 {venta['numero_venta']} - {venta['fecha_venta']} - S/. {venta['total']:.2f} - {venta['estado'].upper()}"
@@ -379,12 +410,12 @@ def historial_ventas():
                     if venta.get('observaciones'):
                         st.write(f"**Observaciones:** {venta['observaciones']}")
                     
-                    # Botón para anular (si está completada)
                     if venta['estado'] == 'completada':
                         if st.button(f"❌ Anular Venta", key=f"anular_{venta['id']}"):
                             try:
                                 venta_service.anular_venta(venta['id'], st.session_state.usuario_id)
                                 st.success("✅ Venta anulada exitosamente")
+                                time.sleep(1.5)
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error anulando venta: {str(e)}")

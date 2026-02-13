@@ -139,7 +139,7 @@ def inventario_general():
         else:  # Nombre
             productos_filtrados.sort(key=lambda x: x['nombre'])
         
-        st.info(f"📊 Mostrando {len(productos_filtrados)} productos")
+        st.info(f"📊 Mostrando la lista total de productos ({len(productos_filtrados)})...")
         
         # Mostrar productos
         if productos_filtrados:

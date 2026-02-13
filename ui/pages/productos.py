@@ -6,6 +6,7 @@ CRUD completo de productos
 """
 
 import streamlit as st
+import time  # ← IMPORTANTE: Agregado para pausar antes del rerun
 from services import ProductoService
 from repositories import CategoriaRepository
 from exceptions import ProductoNoEncontradoException, DatosInvalidosException
@@ -43,7 +44,7 @@ def render():
 
 
 def listar_productos():
-    """Lista todos los productos activos"""
+    """Lista todos los productos activos o inactivos"""
     
     st.subheader("📋 Lista de Productos")
     
@@ -74,18 +75,31 @@ def listar_productos():
             st.write("")
             mostrar_inactivos = st.checkbox("Ver inactivos", value=False)
         
-        # Obtener productos
-        if termino_busqueda:
-            productos = producto_service.buscar_productos(termino_busqueda)
+        # ✅ Obtener productos según el checkbox
+        if mostrar_inactivos:
+            # Mostrar productos INACTIVOS
+            if termino_busqueda:
+                # Buscar en inactivos
+                todos_inactivos = producto_service.listar_productos_inactivos()
+                productos = [p for p in todos_inactivos if termino_busqueda.lower() in p['codigo'].lower() or termino_busqueda.lower() in p['nombre'].lower()]
+            else:
+                productos = producto_service.listar_productos_inactivos()
         else:
-            productos = producto_service.listar_productos_activos()
+            # Mostrar productos ACTIVOS
+            if termino_busqueda:
+                productos = producto_service.buscar_productos(termino_busqueda)
+            else:
+                productos = producto_service.listar_productos_activos()
         
         # Filtrar por categoría
-        if categoria_filtro != "Todas":
+        if categoria_filtro != "Todas" and productos:
             productos = [p for p in productos if p.get('categoria_nombre') == categoria_filtro]
         
         # Mostrar total
-        st.info(f"📊 Total de productos: **{len(productos)}**")
+        if mostrar_inactivos:
+            st.info(f"📊 Total de productos INACTIVOS: **{len(productos)}**")
+        else:
+            st.info(f"📊 Total de productos activos: **{len(productos)}**")
         
         if productos:
             # Convertir a DataFrame para mejor visualización
@@ -97,8 +111,12 @@ def listar_productos():
                 'precio_compra', 'precio_venta', 'stock_actual', 'stock_minimo'
             ]
             
+            # Verificar si las columnas existen
+            columnas_validas = [col for col in columnas_mostrar if col in df.columns]
+            
+            df_display = df[columnas_validas].copy()
+            
             # Renombrar columnas
-            df_display = df[columnas_mostrar].copy()
             df_display.columns = [
                 'Código', 'Nombre', 'Categoría', 
                 'P. Compra', 'P. Venta', 'Stock', 'Stock Mín.'
@@ -108,12 +126,12 @@ def listar_productos():
             df_display['P. Compra'] = df_display['P. Compra'].apply(lambda x: f"S/. {x:.2f}")
             df_display['P. Venta'] = df_display['P. Venta'].apply(lambda x: f"S/. {x:.2f}")
             
-            # Aplicar colores según stock
-            def highlight_stock(row):
-                if row['Stock'] <= row['Stock Mín.']:
-                    return ['background-color: #ffcccc'] * len(row)
-                return [''] * len(row)
+            # ✅ Aplicar estilo visual para inactivos
+            if mostrar_inactivos:
+                # Agregar columna de estado
+                df_display['Estado'] = '🔴 INACTIVO'
             
+            # Mostrar DataFrame
             st.dataframe(
                 df_display,
                 use_container_width=True,
@@ -125,12 +143,15 @@ def listar_productos():
             st.download_button(
                 label="📥 Descargar CSV",
                 data=csv,
-                file_name="productos.csv",
+                file_name=f"productos_{'inactivos' if mostrar_inactivos else 'activos'}.csv",
                 mime="text/csv"
             )
             
         else:
-            st.warning("No se encontraron productos")
+            if mostrar_inactivos:
+                st.warning("No se encontraron productos inactivos")
+            else:
+                st.warning("No se encontraron productos")
     
     except Exception as e:
         st.error(f"Error cargando productos: {str(e)}")
@@ -211,7 +232,7 @@ def crear_producto():
                     except ProductoNoEncontradoException:
                         pass  # El código no existe, podemos continuar
                     
-                                        # Crear el producto
+                    # Crear el producto
                     nuevo_producto_id = producto_service.crear_producto(
                         codigo=codigo,
                         nombre=nombre,
@@ -223,8 +244,10 @@ def crear_producto():
                         unidad_medida=unidad_medida
                     )
                     
+                    # ✅ ACTUALIZACIÓN AUTOMÁTICA: Recargar toda la app
                     st.success(f"✅ Producto '{nombre}' creado exitosamente (ID: {nuevo_producto_id})")
                     st.balloons()
+                    st.rerun()  # ← ¡ESTO ES CLAVE!
                     
                 except Exception as e:
                     st.error(f"Error creando producto: {str(e)}")
@@ -342,6 +365,7 @@ def editar_producto():
                         producto_service.actualizar_producto(producto_seleccionado['id'], datos_update)
                         
                         st.success("✅ Producto actualizado exitosamente")
+                        time.sleep(1.5)  # ← ¡ESPERA 1.5 SEGUNDOS PARA QUE SE VEA EL MENSAJE!
                         st.rerun()
                     
                     except Exception as e:
@@ -349,8 +373,14 @@ def editar_producto():
                         
                 if desactivar:
                     try:
+                        if not st.session_state.get(f"confirm_desactivar_{producto_seleccionado['id']}", False):
+                            st.warning("⚠️ ¿Estás seguro de desactivar este producto? Vuelve a hacer clic para confirmar.")
+                            st.session_state[f"confirm_desactivar_{producto_seleccionado['id']}"] = True
+                            return
+                        
                         producto_service.desactivar_producto(producto_seleccionado['id'])
                         st.success("✅ Producto desactivado exitosamente")
+                        time.sleep(1.5)  # ← ¡ESPERA 1.5 SEGUNDOS!
                         st.rerun()
                     
                     except Exception as e:

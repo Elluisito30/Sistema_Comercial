@@ -313,6 +313,21 @@ class ProductoService:
             logger.error(f"Error calculando valor de inventario: {e}")
             raise
     
+    def listar_productos_inactivos(self) -> List[Dict[str, Any]]:
+        """
+        Lista todos los productos INACTIVOS con información de categoría.
+        
+        Returns:
+            List[Dict]: Lista de productos desactivados
+        """
+        try:
+            productos = self.producto_repo.get_all_inactive()
+            logger.info(f"Productos inactivos listados: {len(productos)}")
+            return productos
+        except Exception as e:
+            logger.error(f"Error listando productos inactivos: {e}")
+            raise
+    
     def _validar_datos_producto(self, datos: Dict[str, Any]) -> None:
         """
         Valida los datos de un producto.
@@ -331,6 +346,10 @@ class ProductoService:
         for campo in campos_requeridos:
             if campo not in datos or not datos[campo]:
                 raise DatosInvalidosException(campo, "Campo requerido")
+        
+        # ✅ Validación adicional para código
+        if not datos['codigo'] or not datos['codigo'].strip():
+            raise DatosInvalidosException('codigo', 'El código no puede estar vacío')
         
         # Validar precios positivos
         if datos['precio_compra'] <= 0:

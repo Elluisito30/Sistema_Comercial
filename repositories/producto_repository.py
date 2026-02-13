@@ -42,7 +42,7 @@ class ProductoRepository(BaseRepository):
     
     def find_by_codigo(self, codigo: str) -> Optional[Dict[str, Any]]:
         """
-        Busca un producto por su código.
+        Busca un producto ACTIVO por su código.
         
         Args:
             codigo (str): Código del producto
@@ -51,7 +51,8 @@ class ProductoRepository(BaseRepository):
             Dict|None: Producto encontrado o None
         """
         try:
-            query = "SELECT * FROM productos WHERE codigo = %s"
+            # ✅ Solo busca productos ACTIVOS
+            query = "SELECT * FROM productos WHERE codigo = %s AND activo = TRUE"
             return execute_query(query, (codigo,), fetch='one')
         except Exception as e:
             logger.error(f"Error buscando producto por código: {e}")
@@ -176,4 +177,26 @@ class ProductoRepository(BaseRepository):
             return execute_query(query, (search_term, search_term)) or []
         except Exception as e:
             logger.error(f"Error buscando productos: {e}")
+            raise
+    
+    def get_all_inactive(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene todos los productos INACTIVOS con información de categoría.
+        
+        Returns:
+            List[Dict]: Lista de productos inactivos
+        """
+        try:
+            query = """
+                SELECT 
+                    p.*,
+                    c.nombre as categoria_nombre
+                FROM productos p
+                INNER JOIN categorias c ON p.categoria_id = c.id
+                WHERE p.activo = FALSE
+                ORDER BY p.nombre ASC
+            """
+            return execute_query(query) or []
+        except Exception as e:
+            logger.error(f"Error obteniendo productos inactivos: {e}")
             raise
