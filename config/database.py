@@ -76,8 +76,7 @@ def initialize_pool():
         
         logger.info(
             f"Pool de conexiones creado exitosamente "
-            f"(size={pool_config['maxconn']}, "
-            f"db={pool_config['database']})"
+            f"(size={pool_config['maxconn']})"
         )
         
         # Probar la conexión
@@ -376,9 +375,7 @@ def get_pool_status() -> Dict[str, Any]:
     return {
         'initialized': True,
         'pool_name': DatabaseConfig.POOL_NAME,
-        'pool_size': config['maxconn'],
-        'database': config['database'],
-        'host': config['host']
+        'pool_size': config['maxconn']
     }
 
 
