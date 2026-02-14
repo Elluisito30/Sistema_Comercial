@@ -71,11 +71,7 @@ def initialize_pool():
         _connection_pool = pool.SimpleConnectionPool(
             minconn=1,
             maxconn=pool_config['maxconn'],
-            host=pool_config['host'],
-            port=pool_config['port'],
-            database=pool_config['database'],
-            user=pool_config['user'],
-            password=pool_config['password']
+            dsn=pool_config['dsn']
         )
         
         logger.info(
@@ -127,7 +123,7 @@ def get_connection():
         # Fallback: crear conexión directa si no hay pool
         logger.warning("Pool no disponible, creando conexión directa")
         config = DatabaseConfig.get_config_dict()
-        connection = psycopg2.connect(**config)
+        connection = psycopg2.connect(config['dsn'])
         return connection
         
     except OperationalError as e:

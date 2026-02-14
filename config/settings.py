@@ -31,13 +31,22 @@ load_dotenv(ENV_FILE)
 
 class DatabaseConfig:
     """
-    Configuración de conexión a PostgreSQL
+    Configuración de conexión a PostgreSQL (Neon Cloud)
     """
-    HOST = os.getenv('DB_HOST', 'localhost')
-    PORT = int(os.getenv('DB_PORT', 5432))  # ✅ Puerto 5432 para PostgreSQL
-    USER = os.getenv('DB_USER', 'postgres')  # ✅ Usuario 'postgres' (no 'root')
-    PASSWORD = os.getenv('DB_PASSWORD', '300805')  # ✅ Tu contraseña
-    NAME = os.getenv('DB_NAME', 'bdsistema_comercializacion')  # ✅ Nombre de tu BD
+    
+    @staticmethod
+    def get_database_url():
+        """
+        Obtiene la URL de conexión según el entorno.
+        Prioriza Streamlit secrets, luego .env
+        """
+        try:
+            import streamlit as st
+            # En Streamlit Cloud
+            return st.secrets["DATABASE_URL"]
+        except:
+            # En local
+            return os.getenv("DATABASE_URL")
     
     # Configuración de Pool de Conexiones
     POOL_NAME = os.getenv('DB_POOL_NAME', 'postgres_pool')
@@ -46,32 +55,45 @@ class DatabaseConfig:
     @classmethod
     def get_config_dict(cls):
         """
-        Retorna un diccionario con la configuración de conexión
+        Retorna un diccionario con la configuración de conexión.
+        Usa DATABASE_URL (DSN) para conectar a Neon.
         
         Returns:
-            dict: Configuración para psycopg2
+            dict: Configuración para psycopg2.connect()
         """
+        database_url = cls.get_database_url()
+        
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL no está configurada. "
+                "Asegúrate de tener el archivo .env con DATABASE_URL "
+                "o configurado en Streamlit secrets."
+            )
+        
         return {
-            'host': cls.HOST,
-            'port': cls.PORT,
-            'database': cls.NAME,
-            'user': cls.USER,
-            'password': cls.PASSWORD
+            'dsn': database_url
         }
     
     @classmethod
     def get_pool_config(cls):
         """
-        Retorna configuración para connection pooling
+        Retorna configuración para connection pooling.
         
         Returns:
-            dict: Configuración del pool para psycopg2
+            dict: Configuración del pool para psycopg2.pool
         """
-        config = cls.get_config_dict()
-        config.update({
+        database_url = cls.get_database_url()
+        
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL no está configurada. "
+                "Verifica tu archivo .env o Streamlit secrets."
+            )
+        
+        return {
+            'dsn': database_url,
             'maxconn': cls.POOL_SIZE
-        })
-        return config
+        }
 
 
 # ============================================
@@ -153,14 +175,13 @@ def validate_config():
     """
     errors = []
     
-    if not DatabaseConfig.HOST:
-        errors.append("DB_HOST no está configurado")
-    
-    if not DatabaseConfig.USER:
-        errors.append("DB_USER no está configurado")
-    
-    if not DatabaseConfig.NAME:
-        errors.append("DB_NAME no está configurado")
+    # Verificar DATABASE_URL
+    try:
+        database_url = DatabaseConfig.get_database_url()
+        if not database_url:
+            errors.append("DATABASE_URL no está configurado en .env o Streamlit secrets")
+    except Exception as e:
+        errors.append(f"Error al obtener DATABASE_URL: {e}")
     
     if AppConfig.SECRET_KEY == 'change-me-in-production' and not AppConfig.DEBUG:
         errors.append("APP_SECRET_KEY debe cambiarse en producción")
