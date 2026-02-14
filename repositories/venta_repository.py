@@ -1,6 +1,6 @@
 """
 ============================================
-REPOSITORIO DE VENTAS
+REPOSITORIO DE VENTAS - POSTGRESQL
 ============================================
 """
 
@@ -31,7 +31,7 @@ class VentaRepository(BaseRepository):
                 SELECT 
                     v.*,
                     c.numero_documento,
-                    CONCAT(c.nombres, ' ', COALESCE(c.apellidos, '')) as cliente_nombre,
+                    c.nombres || ' ' || COALESCE(c.apellidos, '') as cliente_nombre,  -- ✅ PostgreSQL usa ||
                     u.nombre_completo as vendedor_nombre
                 FROM ventas v
                 INNER JOIN clientes c ON v.cliente_id = c.id
@@ -58,7 +58,7 @@ class VentaRepository(BaseRepository):
                 SELECT 
                     v.*,
                     c.numero_documento,
-                    CONCAT(c.nombres, ' ', COALESCE(c.apellidos, '')) as cliente_nombre,
+                    c.nombres || ' ' || COALESCE(c.apellidos, '') as cliente_nombre,  -- ✅ PostgreSQL
                     u.nombre_completo as vendedor_nombre
                 FROM ventas v
                 INNER JOIN clientes c ON v.cliente_id = c.id
@@ -125,7 +125,7 @@ class VentaRepository(BaseRepository):
             query = """
                 SELECT 
                     v.*,
-                    CONCAT(c.nombres, ' ', COALESCE(c.apellidos, '')) as cliente_nombre
+                    c.nombres || ' ' || COALESCE(c.apellidos, '') as cliente_nombre  -- ✅ PostgreSQL
                 FROM ventas v
                 INNER JOIN clientes c ON v.cliente_id = c.id
                 WHERE v.fecha_venta BETWEEN %s AND %s
@@ -164,29 +164,90 @@ class VentaRepository(BaseRepository):
             logger.error(f"Error obteniendo detalle de venta: {e}")
             raise
     
-    def insert_detalle(self, detalle_data: Dict[str, Any]) -> Optional[int]:
+    # ✅ CORRECCIÓN CRÍTICA: Método insert() personalizado para PostgreSQL
+    def insert(self, datos_venta: Dict[str, Any]) -> int:
         """
-        Inserta un detalle de venta.
+        Inserta una nueva venta y retorna su ID (compatible con PostgreSQL)
+        
+        Args:
+            datos_venta (Dict): Datos de la venta
+            
+        Returns:
+            int: ID de la venta insertada
+        """
+        query = """
+            INSERT INTO ventas (
+                numero_venta,
+                cliente_id,
+                usuario_id,
+                fecha_venta,
+                tipo_comprobante,
+                metodo_pago,
+                subtotal,
+                impuesto,
+                descuento,
+                total,
+                estado,
+                observaciones
+            ) VALUES (
+                %(numero_venta)s,
+                %(cliente_id)s,
+                %(usuario_id)s,
+                %(fecha_venta)s,
+                %(tipo_comprobante)s,
+                %(metodo_pago)s,
+                %(subtotal)s,
+                %(impuesto)s,
+                %(descuento)s,
+                %(total)s,
+                %(estado)s,
+                %(observaciones)s
+            ) RETURNING id  -- ✅ ¡ES CLAVE PARA POSTGRESQL!
+        """
+        
+        try:
+            with get_db_cursor(dictionary=False) as (cursor, conn):  # dictionary=False para tupla
+                cursor.execute(query, datos_venta)
+                venta_id = cursor.fetchone()[0]  # ✅ Obtiene el ID real
+                
+                if not venta_id or venta_id <= 0:
+                    raise Exception(f"ID de venta inválido retornado: {venta_id}")
+                
+                conn.commit()
+                logger.info(f"Venta insertada exitosamente con ID: {venta_id}")
+                return venta_id
+                
+        except Exception as e:
+            logger.error(f"Error insertando venta: {e}")
+            raise
+    
+    # ✅ CORRECCIÓN CRÍTICA: Método insert_detalle() para PostgreSQL
+    def insert_detalle(self, detalle_data: Dict[str, Any]) -> int:
+        """
+        Inserta un detalle de venta (compatible con PostgreSQL).
         
         Args:
             detalle_data (Dict): Datos del detalle
             
         Returns:
-            int|None: ID del detalle insertado
+            int: ID del detalle insertado
         """
         try:
             columns = ', '.join(detalle_data.keys())
-            placeholders = ', '.join(['%s'] * len(detalle_data))
-            values = tuple(detalle_data.values())
+            placeholders = ', '.join(['%(' + k + ')s' for k in detalle_data.keys()])  # ✅ Named placeholders
             
-            query = f"INSERT INTO detalle_ventas ({columns}) VALUES ({placeholders})"
+            query = f"""
+                INSERT INTO detalle_ventas ({columns}) 
+                VALUES ({placeholders})
+                RETURNING id  -- ✅ PostgreSQL requiere RETURNING
+            """
             
-            with get_db_cursor() as (cursor, conn):
-                cursor.execute(query, values)
+            with get_db_cursor(dictionary=False) as (cursor, conn):
+                cursor.execute(query, detalle_data)
+                detalle_id = cursor.fetchone()[0]  # ✅ Obtiene el ID real
                 conn.commit()
-                inserted_id = cursor.lastrowid
-                logger.info(f"Detalle de venta insertado: ID {inserted_id}")
-                return inserted_id
+                logger.info(f"Detalle de venta insertado: ID {detalle_id}")
+                return detalle_id
                 
         except Exception as e:
             logger.error(f"Error insertando detalle de venta: {e}")
@@ -271,7 +332,7 @@ class VentaRepository(BaseRepository):
             query = """
                 SELECT 
                     v.*,
-                    CONCAT(c.nombres, ' ', COALESCE(c.apellidos, '')) as cliente_nombre
+                    c.nombres || ' ' || COALESCE(c.apellidos, '') as cliente_nombre  -- ✅ PostgreSQL
                 FROM ventas v
                 INNER JOIN clientes c ON v.cliente_id = c.id
                 WHERE v.fecha_venta = %s

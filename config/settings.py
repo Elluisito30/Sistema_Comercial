@@ -26,22 +26,22 @@ ENV_FILE = BASE_DIR / '.env'
 load_dotenv(ENV_FILE)
 
 # ============================================
-# CONFIGURACIÓN DE BASE DE DATOS
+# CONFIGURACIÓN DE BASE DE DATOS - POSTGRESQL
 # ============================================
 
 class DatabaseConfig:
     """
-    Configuración de conexión a MySQL
+    Configuración de conexión a PostgreSQL
     """
     HOST = os.getenv('DB_HOST', 'localhost')
-    PORT = int(os.getenv('DB_PORT', 3306))
-    USER = os.getenv('DB_USER', 'root')
-    PASSWORD = os.getenv('DB_PASSWORD', '')
-    NAME = os.getenv('DB_NAME', 'sistema_comercializacion')
+    PORT = int(os.getenv('DB_PORT', 5432))  # ✅ Puerto 5432 para PostgreSQL
+    USER = os.getenv('DB_USER', 'postgres')  # ✅ Usuario 'postgres' (no 'root')
+    PASSWORD = os.getenv('DB_PASSWORD', '300805')  # ✅ Tu contraseña
+    NAME = os.getenv('DB_NAME', 'bdsistema_comercializacion')  # ✅ Nombre de tu BD
     
     # Configuración de Pool de Conexiones
-    POOL_NAME = os.getenv('DB_POOL_NAME', 'mypool')
-    POOL_SIZE = int(os.getenv('DB_POOL_SIZE', 5))
+    POOL_NAME = os.getenv('DB_POOL_NAME', 'postgres_pool')
+    POOL_SIZE = int(os.getenv('DB_POOL_SIZE', 10))
     
     @classmethod
     def get_config_dict(cls):
@@ -49,18 +49,14 @@ class DatabaseConfig:
         Retorna un diccionario con la configuración de conexión
         
         Returns:
-            dict: Configuración para mysql.connector
+            dict: Configuración para psycopg2
         """
         return {
             'host': cls.HOST,
             'port': cls.PORT,
-            'user': cls.USER,
-            'password': cls.PASSWORD,
             'database': cls.NAME,
-            'charset': 'utf8mb4',
-            'collation': 'utf8mb4_unicode_ci',
-            'autocommit': False,  # Control manual de transacciones
-            'raise_on_warnings': True
+            'user': cls.USER,
+            'password': cls.PASSWORD
         }
     
     @classmethod
@@ -69,13 +65,11 @@ class DatabaseConfig:
         Retorna configuración para connection pooling
         
         Returns:
-            dict: Configuración del pool
+            dict: Configuración del pool para psycopg2
         """
         config = cls.get_config_dict()
         config.update({
-            'pool_name': cls.POOL_NAME,
-            'pool_size': cls.POOL_SIZE,
-            'pool_reset_session': True
+            'maxconn': cls.POOL_SIZE
         })
         return config
 

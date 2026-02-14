@@ -1,6 +1,6 @@
 """
 ============================================
-SERVICIO DE COMPRAS
+SERVICIO DE COMPRAS - POSTGRESQL (CORREGIDO)
 ============================================
 Lógica de negocio para el proceso de compras.
 Incluye registro de compras y actualización de inventario.
@@ -23,7 +23,6 @@ from exceptions import (
     EstadoInvalidoException,
     DatosInvalidosException
 )
-from config.database import get_db_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class CompraService:
         observaciones: str = None
     ) -> Dict[str, Any]:
         """
-        Registra una nueva compra con sus detalles.
+        Registra una nueva compra con sus detalles (100% compatible con PostgreSQL).
         
         Args:
             proveedor_id (int): ID del proveedor
@@ -106,49 +105,44 @@ class CompraService:
             # Generar número de compra
             numero_compra = self.compra_repo.generate_numero_compra()
             
-            # TRANSACCIÓN: Insertar compra y detalles
-            compra_id = None
+            # ✅ INSERTAR COMPRA (el repositorio maneja su propia transacción con RETURNING id)
+            datos_compra = {
+                'numero_compra': numero_compra,
+                'proveedor_id': proveedor_id,
+                'usuario_id': usuario_id,
+                'fecha_compra': fecha_compra,
+                'tipo_comprobante': 'factura',  # Ajusta según tu lógica de negocio
+                'subtotal': round(subtotal, 2),
+                'impuesto': round(impuesto, 2),
+                'descuento': 0.0,
+                'total': round(total, 2),
+                'estado': 'pendiente',
+                'observaciones': observaciones
+            }
             
-            with get_db_cursor() as (cursor, conn):
-                try:
-                    # 1. Insertar compra
-                    datos_compra = {
-                        'numero_compra': numero_compra,
-                        'proveedor_id': proveedor_id,
-                        'usuario_id': usuario_id,
-                        'fecha_compra': fecha_compra,
-                        'estado': 'pendiente',
-                        'subtotal': round(subtotal, 2),
-                        'impuesto': round(impuesto, 2),
-                        'total': round(total, 2),
-                        'observaciones': observaciones
-                    }
-                    
-                    compra_id = self.compra_repo.insert(datos_compra)
-                    
-                    # 2. Insertar detalles
-                    for item in productos:
-                        detalle_data = {
-                            'compra_id': compra_id,
-                            'producto_id': item['producto_id'],
-                            'cantidad': item['cantidad'],
-                            'precio_unitario': item['precio_unitario'],
-                            'subtotal': item['subtotal']
-                        }
-                        self.compra_repo.insert_detalle(detalle_data)
-                    
-                    conn.commit()
-                    
-                    logger.info(
-                        f"Compra registrada: {numero_compra}, "
-                        f"Proveedor: {proveedor['razon_social']}, "
-                        f"Total: S/. {total:.2f}"
-                    )
-                    
-                except Exception as e:
-                    conn.rollback()
-                    logger.error(f"Error en transacción de compra: {e}")
-                    raise
+            # ✅ OBTENER EL ID REAL DE LA COMPRA (NUNCA SERÁ 0)
+            compra_id = self.compra_repo.insert(datos_compra)
+            logger.info(f"✅ Compra ID real obtenido: {compra_id}")  # ← ¡CLAVE PARA DIAGNÓSTICO!
+            
+            if compra_id <= 0:
+                raise Exception(f"ID de compra inválido retornado por repositorio: {compra_id}")
+            
+            # ✅ INSERTAR DETALLES (cada detalle usa el compra_id REAL > 0)
+            for item in productos:
+                detalle_data = {
+                    'compra_id': compra_id,  # ✅ AHORA ES SIEMPRE > 0
+                    'producto_id': item['producto_id'],
+                    'cantidad': item['cantidad'],
+                    'precio_unitario': item['precio_unitario'],
+                    'subtotal': item['subtotal']
+                }
+                self.compra_repo.insert_detalle(detalle_data)
+            
+            logger.info(
+                f"✅ Compra registrada exitosamente: {numero_compra}, "
+                f"Proveedor: {proveedor['razon_social']}, "
+                f"Total: S/. {total:.2f}, ID: {compra_id}"
+            )
             
             # Retornar información de la compra
             return {
@@ -166,7 +160,7 @@ class CompraService:
         except (ProveedorNoEncontradoException, ProductoNoEncontradoException, DatosInvalidosException):
             raise
         except Exception as e:
-            logger.error(f"Error registrando compra: {e}")
+            logger.error(f"❌ Error CRÍTICO registrando compra: {e}")
             raise
     
     def recibir_compra(self, compra_id: int, usuario_id: int, fecha_recepcion: date = None) -> bool:
@@ -206,55 +200,46 @@ class CompraService:
             # Obtener detalles de la compra
             detalles = self.compra_repo.get_detalle(compra_id)
             
-            # TRANSACCIÓN: Actualizar stock y registrar movimientos
-            with get_db_cursor() as (cursor, conn):
-                try:
-                    for detalle in detalles:
-                        producto_id = detalle['producto_id']
-                        cantidad = detalle['cantidad']
-                        
-                        # Obtener stock anterior
-                        stock_anterior = self.producto_repo.get_stock_actual(producto_id)
-                        stock_nuevo = stock_anterior + cantidad
-                        
-                        # Actualizar stock
-                        self.producto_repo.update_stock(producto_id, cantidad, 'sumar')
-                        
-                        # Registrar movimiento
-                        movimiento_data = {
-                            'producto_id': producto_id,
-                            'tipo_movimiento': 'entrada',
-                            'cantidad': cantidad,
-                            'motivo': 'compra',
-                            'referencia_id': compra_id,
-                            'stock_anterior': stock_anterior,
-                            'stock_nuevo': stock_nuevo,
-                            'usuario_id': usuario_id,
-                            'observaciones': f"Entrada por compra {compra['numero_compra']}"
-                        }
-                        self.movimiento_repo.registrar_movimiento(movimiento_data)
-                    
-                    # Actualizar estado de la compra
-                    self.compra_repo.update_estado(compra_id, 'recibida', fecha_recepcion)
-                    
-                    conn.commit()
-                    
-                    logger.info(
-                        f"Compra recibida: {compra['numero_compra']}, "
-                        f"{len(detalles)} productos actualizados"
-                    )
-                    
-                    return True
-                    
-                except Exception as e:
-                    conn.rollback()
-                    logger.error(f"Error en transacción de recepción de compra: {e}")
-                    raise
+            # ✅ ACTUALIZAR STOCK Y REGISTRAR MOVIMIENTOS (sin transacción manual externa)
+            for detalle in detalles:
+                producto_id = detalle['producto_id']
+                cantidad = detalle['cantidad']
+                
+                # Obtener stock anterior
+                stock_anterior = self.producto_repo.get_stock_actual(producto_id)
+                stock_nuevo = stock_anterior + cantidad
+                
+                # Actualizar stock
+                self.producto_repo.update_stock(producto_id, cantidad, 'sumar')
+                
+                # Registrar movimiento
+                movimiento_data = {
+                    'producto_id': producto_id,
+                    'tipo_movimiento': 'entrada',
+                    'cantidad': cantidad,
+                    'motivo': 'compra',
+                    'referencia_id': compra_id,
+                    'stock_anterior': stock_anterior,
+                    'stock_nuevo': stock_nuevo,
+                    'usuario_id': usuario_id,
+                    'observaciones': f"Entrada por compra {compra['numero_compra']}"
+                }
+                self.movimiento_repo.registrar_movimiento(movimiento_data)
+            
+            # Actualizar estado de la compra
+            self.compra_repo.update_estado(compra_id, 'recibida', fecha_recepcion)
+            
+            logger.info(
+                f"✅ Compra recibida: {compra['numero_compra']}, "
+                f"{len(detalles)} productos actualizados en inventario"
+            )
+            
+            return True
             
         except (CompraNoEncontradaException, EstadoInvalidoException):
             raise
         except Exception as e:
-            logger.error(f"Error recibiendo compra {compra_id}: {e}")
+            logger.error(f"❌ Error recibiendo compra {compra_id}: {e}")
             raise
     
     def cancelar_compra(self, compra_id: int) -> bool:
@@ -282,14 +267,14 @@ class CompraService:
             resultado = self.compra_repo.update_estado(compra_id, 'cancelada')
             
             if resultado:
-                logger.info(f"Compra cancelada: {compra['numero_compra']}")
+                logger.info(f"✅ Compra cancelada: {compra['numero_compra']}")
             
             return resultado
             
         except (CompraNoEncontradaException, EstadoInvalidoException):
             raise
         except Exception as e:
-            logger.error(f"Error cancelando compra {compra_id}: {e}")
+            logger.error(f"❌ Error cancelando compra {compra_id}: {e}")
             raise
     
     def listar_compras(
@@ -322,10 +307,10 @@ class CompraService:
             if estado and (fecha_inicio and fecha_fin):
                 compras = [c for c in compras if c['estado'] == estado]
             
-            logger.info(f"Compras listadas: {len(compras)}")
+            logger.info(f"✅ Compras listadas: {len(compras)}")
             return compras
         except Exception as e:
-            logger.error(f"Error listando compras: {e}")
+            logger.error(f"❌ Error listando compras: {e}")
             raise
     
     def obtener_compra_completa(self, compra_id: int) -> Dict[str, Any]:
@@ -351,7 +336,7 @@ class CompraService:
         except CompraNoEncontradaException:
             raise
         except Exception as e:
-            logger.error(f"Error obteniendo compra completa {compra_id}: {e}")
+            logger.error(f"❌ Error obteniendo compra completa {compra_id}: {e}")
             raise
     
     def obtener_detalles_compra(self, compra_id: int) -> List[Dict[str, Any]]:
@@ -368,7 +353,7 @@ class CompraService:
             detalles = self.compra_repo.get_detalle(compra_id)
             return detalles if detalles else []
         except Exception as e:
-            logger.error(f"Error obteniendo detalles de compra {compra_id}: {e}")
+            logger.error(f"❌ Error obteniendo detalles de compra {compra_id}: {e}")
             raise
     
     def calcular_total_compras_periodo(
@@ -403,9 +388,9 @@ class CompraService:
                 'fecha_fin': fecha_fin
             }
             
-            logger.info(f"Estadísticas de compras calculadas: S/. {resultado['total_gastado']:.2f}")
+            logger.info(f"✅ Estadísticas de compras calculadas: S/. {resultado['total_gastado']:.2f}")
             return resultado
             
         except Exception as e:
-            logger.error(f"Error calculando total de compras: {e}")
+            logger.error(f"❌ Error calculando total de compras: {e}")
             raise

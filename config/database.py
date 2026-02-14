@@ -1,9 +1,9 @@
 """
 ============================================
-CAPA DE CONEXIÓN A BASE DE DATOS
+CAPA DE CONEXIÓN A BASE DE DATOS - POSTGRESQL
 ============================================
 Proporciona funciones para gestionar conexiones
-a MySQL de forma segura y eficiente.
+a PostgreSQL de forma segura y eficiente.
 
 Características:
 - Connection pooling para mejor rendimiento
@@ -16,11 +16,12 @@ Fecha: 2026
 ============================================
 """
 
-import mysql.connector
-from mysql.connector import Error, pooling
+import psycopg2
+from psycopg2 import pool, OperationalError
+from psycopg2.extras import RealDictCursor, DictCursor
 from contextlib import contextmanager
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from config.settings import DatabaseConfig
 
 # ============================================
@@ -43,18 +44,18 @@ logger = logging.getLogger(__name__)
 # POOL DE CONEXIONES GLOBAL
 # ============================================
 
-_connection_pool: Optional[pooling.MySQLConnectionPool] = None
+_connection_pool: Optional[pool.SimpleConnectionPool] = None
 
 
 def initialize_pool():
     """
-    Inicializa el pool de conexiones a MySQL.
+    Inicializa el pool de conexiones a PostgreSQL.
     
     Esta función debe llamarse una vez al inicio de la aplicación.
     Crea un pool de conexiones reutilizables para mejorar el rendimiento.
     
     Raises:
-        Error: Si no se puede crear el pool de conexiones
+        OperationalError: Si no se puede crear el pool de conexiones
     """
     global _connection_pool
     
@@ -63,24 +64,30 @@ def initialize_pool():
         return
     
     try:
-        logger.info("Inicializando pool de conexiones a MySQL...")
+        logger.info("Inicializando pool de conexiones a PostgreSQL...")
         
         pool_config = DatabaseConfig.get_pool_config()
         
-        _connection_pool = pooling.MySQLConnectionPool(
-            **pool_config
+        _connection_pool = pool.SimpleConnectionPool(
+            minconn=1,
+            maxconn=pool_config['maxconn'],
+            host=pool_config['host'],
+            port=pool_config['port'],
+            database=pool_config['database'],
+            user=pool_config['user'],
+            password=pool_config['password']
         )
         
         logger.info(
             f"Pool de conexiones creado exitosamente "
-            f"(size={DatabaseConfig.POOL_SIZE}, "
-            f"db={DatabaseConfig.NAME})"
+            f"(size={pool_config['maxconn']}, "
+            f"db={pool_config['database']})"
         )
         
         # Probar la conexión
         test_connection()
         
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error al crear el pool de conexiones: {e}")
         _connection_pool = None
         raise
@@ -95,14 +102,14 @@ def get_connection():
     o crea una conexión directa como fallback.
     
     Returns:
-        mysql.connector.connection.MySQLConnection: Conexión a la base de datos
+        psycopg2.extensions.connection: Conexión a la base de datos
         
     Raises:
-        Error: Si no se puede obtener una conexión
+        OperationalError: Si no se puede obtener una conexión
         
     Example:
         >>> conn = get_connection()
-        >>> cursor = conn.cursor(dictionary=True)
+        >>> cursor = conn.cursor(cursor_factory=RealDictCursor)
         >>> cursor.execute("SELECT * FROM usuarios")
         >>> results = cursor.fetchall()
         >>> cursor.close()
@@ -113,17 +120,17 @@ def get_connection():
     try:
         # Intentar obtener conexión del pool
         if _connection_pool is not None:
-            connection = _connection_pool.get_connection()
+            connection = _connection_pool.getconn()
             logger.debug("Conexión obtenida del pool")
             return connection
         
         # Fallback: crear conexión directa si no hay pool
         logger.warning("Pool no disponible, creando conexión directa")
         config = DatabaseConfig.get_config_dict()
-        connection = mysql.connector.connect(**config)
+        connection = psycopg2.connect(**config)
         return connection
         
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error al obtener conexión: {e}")
         raise
 
@@ -137,11 +144,11 @@ def get_db_connection():
     ocurre una excepción. Uso recomendado para operaciones simples.
     
     Yields:
-        mysql.connector.connection.MySQLConnection: Conexión a la base de datos
+        psycopg2.extensions.connection: Conexión a la base de datos
         
     Example:
         >>> with get_db_connection() as conn:
-        ...     cursor = conn.cursor(dictionary=True)
+        ...     cursor = conn.cursor(cursor_factory=RealDictCursor)
         ...     cursor.execute("SELECT * FROM productos")
         ...     productos = cursor.fetchall()
         ...     cursor.close()
@@ -150,12 +157,15 @@ def get_db_connection():
     try:
         connection = get_connection()
         yield connection
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error en la conexión: {e}")
         raise
     finally:
-        if connection and connection.is_connected():
-            connection.close()
+        if connection:
+            if _connection_pool:
+                _connection_pool.putconn(connection)
+            else:
+                connection.close()
             logger.debug("Conexión cerrada correctamente")
 
 
@@ -169,7 +179,7 @@ def get_db_cursor(dictionary=True, buffered=True):
     
     Args:
         dictionary (bool): Si True, los resultados se retornan como diccionarios
-        buffered (bool): Si True, el cursor almacena todos los resultados
+        buffered (bool): No aplica directamente en PostgreSQL, pero se mantiene para compatibilidad
         
     Yields:
         tuple: (cursor, connection)
@@ -185,16 +195,20 @@ def get_db_cursor(dictionary=True, buffered=True):
     cursor = None
     try:
         connection = get_connection()
-        cursor = connection.cursor(dictionary=dictionary, buffered=buffered)
+        cursor_factory = RealDictCursor if dictionary else None
+        cursor = connection.cursor(cursor_factory=cursor_factory)
         yield cursor, connection
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error en cursor: {e}")
         raise
     finally:
         if cursor:
             cursor.close()
-        if connection and connection.is_connected():
-            connection.close()
+        if connection:
+            if _connection_pool:
+                _connection_pool.putconn(connection)
+            else:
+                connection.close()
 
 
 def execute_query(query: str, params: tuple = None, fetch: str = 'all') -> Optional[Any]:
@@ -233,13 +247,13 @@ def execute_query(query: str, params: tuple = None, fetch: str = 'all') -> Optio
             logger.debug(f"Query ejecutado: {query[:100]}...")
             return result
             
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error ejecutando query: {e}")
         logger.error(f"Query: {query}")
         raise
 
 
-def execute_transaction(operations: list) -> bool:
+def execute_transaction(operations: List[Tuple[str, tuple]]) -> bool:
     """
     Ejecuta múltiples operaciones en una transacción.
     
@@ -267,8 +281,7 @@ def execute_transaction(operations: list) -> bool:
         connection = get_connection()
         cursor = connection.cursor()
         
-        # Iniciar transacción
-        connection.start_transaction()
+        # Iniciar transacción (autocommit=False por defecto en psycopg2)
         logger.debug("Transacción iniciada")
         
         # Ejecutar todas las operaciones
@@ -281,7 +294,7 @@ def execute_transaction(operations: list) -> bool:
         logger.info(f"Transacción completada: {len(operations)} operaciones")
         return True
         
-    except Error as e:
+    except OperationalError as e:
         # Revertir en caso de error
         if connection:
             connection.rollback()
@@ -291,8 +304,11 @@ def execute_transaction(operations: list) -> bool:
     finally:
         if cursor:
             cursor.close()
-        if connection and connection.is_connected():
-            connection.close()
+        if connection:
+            if _connection_pool:
+                _connection_pool.putconn(connection)
+            else:
+                connection.close()
 
 
 def test_connection() -> bool:
@@ -305,20 +321,22 @@ def test_connection() -> bool:
         bool: True si la conexión es exitosa
         
     Raises:
-        Error: Si no se puede conectar
+        OperationalError: Si no se puede conectar
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT VERSION()")
+            cursor.execute("SELECT version()")
             version = cursor.fetchone()
+            cursor.execute("SELECT current_database()")
+            db_name = cursor.fetchone()
             cursor.close()
             
-            logger.info(f"Conexión exitosa a MySQL - Versión: {version[0]}")
-            logger.info(f"Base de datos: {DatabaseConfig.NAME}")
+            logger.info(f"Conexión exitosa a PostgreSQL - Versión: {version[0][:50]}...")
+            logger.info(f"Base de datos: {db_name[0]}")
             return True
             
-    except Error as e:
+    except OperationalError as e:
         logger.error(f"Error al probar la conexión: {e}")
         raise
 
@@ -333,8 +351,7 @@ def close_pool():
     
     if _connection_pool:
         logger.info("Cerrando pool de conexiones...")
-        # El pool no tiene un método close directo en mysql-connector-python
-        # Las conexiones se cierran automáticamente al eliminar el pool
+        _connection_pool.closeall()
         _connection_pool = None
         logger.info("Pool de conexiones cerrado")
 
@@ -359,12 +376,13 @@ def get_pool_status() -> Dict[str, Any]:
             'pool_size': 0
         }
     
+    config = DatabaseConfig.get_pool_config()
     return {
         'initialized': True,
         'pool_name': DatabaseConfig.POOL_NAME,
-        'pool_size': DatabaseConfig.POOL_SIZE,
-        'database': DatabaseConfig.NAME,
-        'host': DatabaseConfig.HOST
+        'pool_size': config['maxconn'],
+        'database': config['database'],
+        'host': config['host']
     }
 
 
@@ -375,6 +393,6 @@ def get_pool_status() -> Dict[str, Any]:
 # Inicializar el pool al importar el módulo
 try:
     initialize_pool()
-except Error as e:
+except OperationalError as e:
     logger.error(f"No se pudo inicializar el pool automáticamente: {e}")
     logger.warning("Las conexiones se crearán bajo demanda")

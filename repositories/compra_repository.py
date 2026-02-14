@@ -1,31 +1,24 @@
 """
 ============================================
-REPOSITORIO DE COMPRAS
+REPOSITORIO DE COMPRAS - POSTGRESQL (CORREGIDO Y VALIDADO)
 ============================================
 """
 
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
-from .base_repository import BaseRepository
 from config.database import execute_query, get_db_cursor
 
 logger = logging.getLogger(__name__)
 
 
-class CompraRepository(BaseRepository):
-    """Repositorio para gestionar compras y sus detalles"""
+class CompraRepository:
+    """Repositorio para gestionar compras - PostgreSQL"""
     
     def __init__(self):
-        super().__init__('compras')
+        self.table_name = 'compras'
     
     def get_all_with_details(self) -> List[Dict[str, Any]]:
-        """
-        Obtiene todas las compras con información de proveedor.
-        
-        Returns:
-            List[Dict]: Lista de compras
-        """
         try:
             query = """
                 SELECT 
@@ -42,16 +35,15 @@ class CompraRepository(BaseRepository):
             logger.error(f"Error obteniendo compras con detalles: {e}")
             raise
     
+    def find_by_id(self, compra_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            query = f"SELECT * FROM {self.table_name} WHERE id = %s"
+            return execute_query(query, (compra_id,), fetch='one')
+        except Exception as e:
+            logger.error(f"Error buscando compra por ID: {e}")
+            raise
+    
     def find_by_numero(self, numero_compra: str) -> Optional[Dict[str, Any]]:
-        """
-        Busca una compra por su número.
-        
-        Args:
-            numero_compra (str): Número de compra
-            
-        Returns:
-            Dict|None: Compra encontrada o None
-        """
         try:
             query = """
                 SELECT 
@@ -69,15 +61,6 @@ class CompraRepository(BaseRepository):
             raise
     
     def get_by_proveedor(self, proveedor_id: int) -> List[Dict[str, Any]]:
-        """
-        Obtiene compras de un proveedor específico.
-        
-        Args:
-            proveedor_id (int): ID del proveedor
-            
-        Returns:
-            List[Dict]: Lista de compras
-        """
         try:
             query = """
                 SELECT c.*, p.razon_social as proveedor_nombre
@@ -92,36 +75,18 @@ class CompraRepository(BaseRepository):
             raise
     
     def get_by_estado(self, estado: str) -> List[Dict[str, Any]]:
-        """
-        Obtiene compras por estado.
-        
-        Args:
-            estado (str): Estado ('pendiente', 'recibida', 'cancelada')
-            
-        Returns:
-            List[Dict]: Lista de compras
-        """
         try:
-            return self.find_all(
-                conditions="estado = %s",
-                params=(estado,),
-                order_by="fecha_compra DESC"
-            )
+            query = f"""
+                SELECT * FROM {self.table_name}
+                WHERE estado = %s
+                ORDER BY fecha_compra DESC
+            """
+            return execute_query(query, (estado,)) or []
         except Exception as e:
             logger.error(f"Error obteniendo compras por estado: {e}")
             raise
     
     def get_by_date_range(self, fecha_inicio: date, fecha_fin: date) -> List[Dict[str, Any]]:
-        """
-        Obtiene compras en un rango de fechas.
-        
-        Args:
-            fecha_inicio (date): Fecha inicial
-            fecha_fin (date): Fecha final
-            
-        Returns:
-            List[Dict]: Lista de compras
-        """
         try:
             query = """
                 SELECT 
@@ -138,15 +103,6 @@ class CompraRepository(BaseRepository):
             raise
     
     def get_detalle(self, compra_id: int) -> List[Dict[str, Any]]:
-        """
-        Obtiene el detalle de productos de una compra.
-        
-        Args:
-            compra_id (int): ID de la compra
-            
-        Returns:
-            List[Dict]: Lista de productos comprados
-        """
         try:
             query = """
                 SELECT 
@@ -164,67 +120,151 @@ class CompraRepository(BaseRepository):
             logger.error(f"Error obteniendo detalle de compra: {e}")
             raise
     
-    def insert_detalle(self, detalle_data: Dict[str, Any]) -> Optional[int]:
+    # ✅ CORREGIDO: Método insert() con validación robusta
+    def insert(self, datos_compra: Dict[str, Any]) -> int:
         """
-        Inserta un detalle de compra.
+        Inserta compra y retorna ID REAL usando RETURNING (PostgreSQL)
+        """
+        # ✅ Validar campos obligatorios ANTES de intentar insertar
+        campos_obligatorios = [
+            'numero_compra', 'proveedor_id', 'usuario_id', 'fecha_compra',
+            'tipo_comprobante', 'subtotal', 'impuesto', 'total', 'estado'
+        ]
+        for campo in campos_obligatorios:
+            if campo not in datos_compra or datos_compra[campo] is None:
+                raise ValueError(f"Campo obligatorio faltante: {campo}")
         
-        Args:
-            detalle_data (Dict): Datos del detalle
-            
-        Returns:
-            int|None: ID del detalle insertado
+        query = """
+            INSERT INTO compras (
+                numero_compra,
+                proveedor_id,
+                usuario_id,
+                fecha_compra,
+                subtotal,
+                impuesto,
+                total,
+                estado,
+                observaciones
+            ) VALUES (
+                %(numero_compra)s,
+                %(proveedor_id)s,
+                %(usuario_id)s,
+                %(fecha_compra)s,
+                %(subtotal)s,
+                %(impuesto)s,
+                %(total)s,
+                %(estado)s,
+                %(observaciones)s
+            ) RETURNING id
         """
+        
         try:
-            columns = ', '.join(detalle_data.keys())
-            placeholders = ', '.join(['%s'] * len(detalle_data))
-            values = tuple(detalle_data.values())
-            
-            query = f"INSERT INTO detalle_compras ({columns}) VALUES ({placeholders})"
-            
-            with get_db_cursor() as (cursor, conn):
-                cursor.execute(query, values)
+            with get_db_cursor(dictionary=False) as (cursor, conn):
+                cursor.execute(query, datos_compra)
+                result = cursor.fetchone()
+                
+                if not result or result[0] is None:
+                    raise RuntimeError("No se obtuvo ID de la compra insertada")
+                
+                compra_id = result[0]
                 conn.commit()
-                inserted_id = cursor.lastrowid
-                logger.info(f"Detalle de compra insertado: ID {inserted_id}")
-                return inserted_id
+                
+                if not isinstance(compra_id, int) or compra_id <= 0:
+                    raise ValueError(f"ID de compra inválido retornado por PostgreSQL: {compra_id}")
+                
+                logger.info(f"✅ Compra insertada exitosamente con ID REAL: {compra_id}")
+                return compra_id
                 
         except Exception as e:
-            logger.error(f"Error insertando detalle de compra: {e}")
+            logger.error(f"❌ Error CRÍTICO insertando compra: {str(e)}")
+            if 'conn' in locals() and conn:
+                conn.rollback()
+            raise
+    
+    # ✅ CORREGIDO: Sintaxis del parámetro + validación estricta
+    def insert_detalle(self, detalle_data: Dict[str, Any]) -> int:  # ← ¡CORREGIDO: detalle_data: Dict!
+        """
+        Inserta detalle de compra con validación estricta de compra_id
+        """
+        # ✅ VALIDACIÓN 1: compra_id existe y es entero positivo
+        if 'compra_id' not in detalle_data:
+            raise ValueError("El campo 'compra_id' es obligatorio en detalle_data")
+        
+        compra_id = detalle_data['compra_id']
+        if not isinstance(compra_id, int) or compra_id <= 0:
+            raise ValueError(f"compra_id inválido: debe ser entero > 0, recibido: {compra_id} (tipo: {type(compra_id).__name__})")
+        
+        # ✅ VALIDACIÓN 2: Otros campos obligatorios
+        campos_obligatorios = ['producto_id', 'cantidad', 'precio_unitario', 'subtotal']
+        for campo in campos_obligatorios:
+            if campo not in detalle_data or detalle_data[campo] is None:
+                raise ValueError(f"Campo obligatorio faltante en detalle: {campo}")
+        
+        try:
+            columns = ', '.join(detalle_data.keys())
+            placeholders = ', '.join([f"%({k})s" for k in detalle_data.keys()])
+            
+            query = f"""
+                INSERT INTO detalle_compras ({columns}) 
+                VALUES ({placeholders})
+                RETURNING id
+            """
+            
+            with get_db_cursor(dictionary=False) as (cursor, conn):
+                cursor.execute(query, detalle_data)
+                result = cursor.fetchone()
+                
+                if not result or result[0] is None:
+                    raise RuntimeError("No se obtuvo ID del detalle insertado")
+                
+                detalle_id = result[0]
+                conn.commit()
+                
+                logger.info(
+                    f"✅ Detalle insertado exitosamente | "
+                    f"Detalle ID: {detalle_id} | "
+                    f"Compra ID: {compra_id} | "
+                    f"Producto ID: {detalle_data['producto_id']}"
+                )
+                return detalle_id
+                
+        except Exception as e:
+            logger.error(f"❌ Error CRÍTICO insertando detalle (compra_id={compra_id}): {str(e)}")
+            if 'conn' in locals() and conn:
+                conn.rollback()
+            raise
+    
+    def update(self, compra_id: int, datos: Dict[str, Any]) -> bool:
+        try:
+            set_clause = ', '.join([f"{k} = %({k})s" for k in datos.keys()])
+            query = f"UPDATE {self.table_name} SET {set_clause} WHERE id = %(id)s"
+            
+            datos_completos = datos.copy()
+            datos_completos['id'] = compra_id
+            
+            with get_db_cursor() as (cursor, conn):
+                cursor.execute(query, datos_completos)
+                conn.commit()
+                return cursor.rowcount > 0
+                
+        except Exception as e:
+            logger.error(f"Error actualizando compra: {e}")
             raise
     
     def update_estado(self, compra_id: int, nuevo_estado: str, fecha_recepcion: date = None) -> bool:
-        """
-        Actualiza el estado de una compra.
-        
-        Args:
-            compra_id (int): ID de la compra
-            nuevo_estado (str): Nuevo estado
-            fecha_recepcion (date): Fecha de recepción (opcional)
-            
-        Returns:
-            bool: True si se actualizó correctamente
-        """
         try:
-            data = {'estado': nuevo_estado}
-            
+            datos = {'estado': nuevo_estado}
             if fecha_recepcion:
-                data['fecha_recepcion'] = fecha_recepcion
+                datos['fecha_recepcion'] = fecha_recepcion
             
-            return self.update(compra_id, data)
+            return self.update(compra_id, datos)
         except Exception as e:
-            logger.error(f"Error actualizando estado de compra: {e}")
+            logger.error(f"Error actualizando estado: {e}")
             raise
     
     def generate_numero_compra(self) -> str:
-        """
-        Genera un número de compra único.
-        
-        Returns:
-            str: Número de compra (ej: COM-2024-001)
-        """
         try:
             current_year = datetime.now().year
-            
             query = """
                 SELECT numero_compra 
                 FROM compras 
@@ -232,20 +272,12 @@ class CompraRepository(BaseRepository):
                 ORDER BY id DESC 
                 LIMIT 1
             """
-            
             result = execute_query(query, (f"COM-{current_year}-%",), fetch='one')
             
-            if result:
-                # Extraer el número secuencial
-                last_number = int(result['numero_compra'].split('-')[-1])
-                new_number = last_number + 1
-            else:
-                new_number = 1
-            
+            new_number = int(result['numero_compra'].split('-')[-1]) + 1 if result else 1
             numero_compra = f"COM-{current_year}-{new_number:03d}"
             logger.info(f"Número de compra generado: {numero_compra}")
             return numero_compra
-            
         except Exception as e:
-            logger.error(f"Error generando número de compra: {e}")
+            logger.error(f"Error generando número: {e}")
             raise
