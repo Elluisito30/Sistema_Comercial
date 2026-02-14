@@ -1,11 +1,11 @@
 wheel>=0.41.0
 setuptools>=65.0.0
-mysql-connector-python>=8.0.0,<9.0.0
+psycopg2-binary>=2.9.9         
 python-dotenv>=1.0.0
-streamlit>=1.32.0      # ✅ Compatible con Python 3.13
+streamlit>=1.32.0
 plotly>=5.18.0
-pandas>=2.2.0          # ✅ Soporta Python 3.13 (versión 2.2+)
-numpy>=1.26.4          # Necesario para pandas 2.2+
+pandas>=2.2.0
+numpy>=1.26.4
 reportlab>=4.0.0
 fpdf2>=2.7.0
 bcrypt>=4.0.0
